@@ -66,46 +66,47 @@ class AnnouncementBot:
             await update.message.reply_text(message)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-                """Send a message when the command /help is issued."""
-                is_admin = self.is_admin(update.effective_user.id)
-                help_text = f"""
+        """Send a message when the command /help is issued."""
+        is_admin = self.is_admin(update.effective_user.id)
+        help_text = f"""
     🤖 <b>Announcement Bot Help</b>
 
-    <b>Basic Commands:</b>
-    • /start - Start the bot and see your user ID
-    • /help - Show this help message
+<b>Basic Commands:</b>
+• /start - Start the bot and see your user ID
+• /help - Show this help message
 
     """
-                if is_admin:
-                    help_text += """<b>Admin Commands:</b>
-    • /announce - Send message to all channels
-    • /preview - Preview how message will look
-    • /listchannels - Show all registered channels
-    • /listadmins - Show all admin users
-    • /addadmin - Add new admin
-    • /removeadmin - Remove admin
+        if is_admin:
+            help_text += """
+<b>Admin Commands:</b>
+• /announce - Send message to all channels
+• /preview - Preview how message will look
+• /listchannels - Show all registered channels
+• /listadmins - Show all admin users
+• /addadmin - Add new admin
+• /removeadmin - Remove admin
 
-    <b>Required HTML Tags for Formatting (tip: Use Claude to help with this 😎):</b>
-    • Bold: &lt;b&gt;text&lt;/b&gt;
-    • Code: &lt;code&gt;text&lt;/code&gt;
-    • Italic: &lt;i&gt;text&lt;/i&gt;
-    • Lists: Regular hyphens work (-)
-    • Links: URLs work automatically
+<b>Required HTML Tags for Formatting (tip: Use Claude to help with this 😎):</b>
+• Bold: &lt;b&gt;text&lt;/b&gt;
+• Code: &lt;code&gt;text&lt;/code&gt;
+• Italic: &lt;i&gt;text&lt;/i&gt;
+• Lists: Regular hyphens work (-)
+• Links: URLs work automatically
 
-    <b>Example Message:</b>
-    /preview Hey everyone! Here's a &lt;b&gt;bold announcement&lt;/b&gt;:
+<b>Example Message:</b>
+/preview Hey everyone! Here's a &lt;b&gt;bold announcement&lt;/b&gt;:
 
-    - First point
-    - Second point
+- First point
+- Second point
 
-    Using &lt;code&gt;code&lt;/code&gt; for technical terms.
-    Read more at https://docs.example.com
-    """
-                await update.message.reply_text(
-                    help_text,
-                    parse_mode='HTML',
-                    disable_web_page_preview=True
-                )
+Using &lt;code&gt;code&lt;/code&gt; for technical terms.
+Read more at https://docs.example.com
+"""
+        await update.message.reply_text(
+            help_text,
+            parse_mode='HTML',
+            disable_web_page_preview=True
+        )
 
     async def register_channel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Register a channel when the bot is added to it"""
