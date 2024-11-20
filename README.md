@@ -24,8 +24,9 @@ pip install python-telegram-bot
 - Save the token
 
 3. Configure bot:
-- Replace `INITIAL_ADMIN_IDS` with your Telegram user ID
-- Replace `bot_token` with your bot token
+- Create a `config.py` file
+- Add your bot token as `BOT_TOKEN = "your-token-here"`
+- Add your Telegram ID as `INITIAL_ADMIN_IDS = [your-id-number]`
 
 4. Run the bot:
 ```bash
@@ -33,8 +34,12 @@ python bot.py
 ```
 
 ## Commands
+
+Basic Commands:
 - `/start` - Get your user ID and check admin status
 - `/help` - Show available commands
+
+Admin Commands:
 - `/announce` - Send announcement to all channels
 - `/preview` - Preview formatted message
 - `/listchannels` - Show registered channels
@@ -43,19 +48,27 @@ python bot.py
 - `/removeadmin` - Remove admin
 
 ## Message Formatting
+
+Supported HTML tags:
 ```
 <b>bold text</b>
 <i>italic text</i>
 <code>code blocks</code>
 ```
 
-Example:
+Example message:
 ```
 /preview This is <b>bold</b> and this is <code>code</code>
 
-list
+list:
 - first item
 - second item
 
 And <i>italic</i>
 ```
+
+## Usage
+1. Add the bot to your channels
+2. The bot will automatically register the channels
+3. Use /announce to send messages to all channels at once
+4. Use /preview to test your message formatting
