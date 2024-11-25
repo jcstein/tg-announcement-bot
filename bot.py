@@ -3,16 +3,19 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import json
 import os
-from config import BOT_TOKEN, INITIAL_ADMIN_IDS
+from dotenv import load_dotenv
 
-# Configure logging
+load_dotenv()
+
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+INITIAL_ADMIN_IDS = [int(id) for id in os.getenv('INITIAL_ADMIN_IDS', '').split(',')]
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Configuration files
 CHANNELS_FILE = 'channels.json'
 ADMINS_FILE = 'admins.json'
 
@@ -20,41 +23,35 @@ class AnnouncementBot:
     def __init__(self):
         self.channels = set()
         self.admin_ids = set()
+        self.last_messages = {}
         self.load_channels()
         self.load_admins()
 
     def load_channels(self):
-        """Load channels from file if it exists"""
         if os.path.exists(CHANNELS_FILE):
             with open(CHANNELS_FILE, 'r') as f:
                 self.channels = set(json.load(f))
 
     def save_channels(self):
-        """Save channels to file"""
         with open(CHANNELS_FILE, 'w') as f:
             json.dump(list(self.channels), f)
 
     def load_admins(self):
-        """Load admin IDs from file or create with initial admin"""
         if os.path.exists(ADMINS_FILE):
             with open(ADMINS_FILE, 'r') as f:
                 self.admin_ids = set(json.load(f))
         else:
-            # Initialize with default admin IDs
             self.admin_ids = set(INITIAL_ADMIN_IDS)
             self.save_admins()
 
     def save_admins(self):
-        """Save admin IDs to file"""
         with open(ADMINS_FILE, 'w') as f:
             json.dump(list(self.admin_ids), f)
 
     def is_admin(self, user_id: int) -> bool:
-        """Check if user is an admin"""
         return user_id in self.admin_ids
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Send a message when the command /start is issued."""
         if update.effective_user:
             user_id = update.effective_user.id
             is_admin = self.is_admin(user_id)
@@ -66,27 +63,26 @@ class AnnouncementBot:
             await update.message.reply_text(message)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Send a message when the command /help is issued."""
         is_admin = self.is_admin(update.effective_user.id)
-        help_text = f"""
-    🤖 <b>Announcement Bot Help</b>
+        help_text = """
+🤖 <b>Announcement Bot Help</b>
 
 <b>Basic Commands:</b>
 • /start - Start the bot and see your user ID
 • /help - Show this help message
-
-    """
+"""
         if is_admin:
             help_text += """
 <b>Admin Commands:</b>
 • /announce - Send message to all channels
+• /edit - Edit last sent message
 • /preview - Preview how message will look
 • /listchannels - Show all registered channels
 • /listadmins - Show all admin users
 • /addadmin - Add new admin
 • /removeadmin - Remove admin
 
-<b>Required HTML Tags for Formatting (tip: Use Claude to help with this 😎):</b>
+<b>Required HTML Tags for Formatting:</b>
 • Bold: &lt;b&gt;text&lt;/b&gt;
 • Code: &lt;code&gt;text&lt;/code&gt;
 • Italic: &lt;i&gt;text&lt;/i&gt;
@@ -109,7 +105,6 @@ Read more at https://docs.example.com
         )
 
     async def register_channel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Register a channel when the bot is added to it"""
         chat = update.effective_chat
         if chat and chat.type in ['channel', 'supergroup', 'group']:
             chat_id = chat.id
@@ -118,46 +113,86 @@ Read more at https://docs.example.com
             logger.info(f"Registered new channel: {chat_id}")
 
     async def announce(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Send announcement to all channels"""
-            user_id = update.effective_user.id
-            if not self.is_admin(user_id):
-                await update.message.reply_text("❌ You don't have permission to send announcements.")
-                return
+        user_id = update.effective_user.id
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ You don't have permission to send announcements.")
+            return
 
-            if not update.message.text:
-                await update.message.reply_text("Please provide a message to announce.")
-                return
+        if not update.message.text:
+            await update.message.reply_text("Please provide a message to announce.")
+            return
 
-            full_text = update.message.text
-            if ' ' in full_text:
-                message = full_text[full_text.find(' '):].strip()
-            else:
-                await update.message.reply_text("Please provide a message to announce.")
-                return
+        full_text = update.message.text
+        if ' ' in full_text:
+            message = full_text[full_text.find(' '):].strip()
+        else:
+            await update.message.reply_text("Please provide a message to announce.")
+            return
 
-            success_count = 0
-            fail_count = 0
+        success_count = 0
+        fail_count = 0
+        self.last_messages.clear()
 
-            for channel_id in self.channels:
+        for channel_id in self.channels:
+            try:
+                message_obj = await context.bot.send_message(
+                    chat_id=channel_id,
+                    text=message,
+                    parse_mode='HTML',
+                    disable_web_page_preview=False
+                )
+                self.last_messages[channel_id] = message_obj.message_id
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send message to channel {channel_id}: {e}")
+                fail_count += 1
+
+        await update.message.reply_text(
+            f"Announcement sent to {success_count} channels.\n"
+            f"Failed to send to {fail_count} channels."
+        )
+
+    async def edit_announce(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ You don't have permission to edit announcements.")
+            return
+
+        if not update.message.text:
+            await update.message.reply_text("Please provide a message to edit.")
+            return
+
+        full_text = update.message.text
+        if ' ' in full_text:
+            message = full_text[full_text.find(' '):].strip()
+        else:
+            await update.message.reply_text("Please provide a message to edit.")
+            return
+
+        success_count = 0
+        fail_count = 0
+
+        for channel_id in self.channels:
+            if channel_id in self.last_messages:
                 try:
-                    await context.bot.send_message(
+                    await context.bot.edit_message_text(
                         chat_id=channel_id,
+                        message_id=self.last_messages[channel_id],
                         text=message,
                         parse_mode='HTML',
                         disable_web_page_preview=False
                     )
                     success_count += 1
                 except Exception as e:
-                    logger.error(f"Failed to send message to channel {channel_id}: {e}")
+                    logger.error(f"Failed to edit message in channel {channel_id}: {e}")
                     fail_count += 1
 
-            await update.message.reply_text(
-                f"Announcement sent to {success_count} channels.\n"
-                f"Failed to send to {fail_count} channels."
-            )
+        await update.message.reply_text(
+            f"Announcement edited in {success_count} channels.\n"
+            f"Failed to edit in {fail_count} channels."
+        )
 
     async def preview(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Preview announcement message without sending"""
         user_id = update.effective_user.id
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ You don't have permission to preview announcements.")
@@ -197,7 +232,6 @@ Use /announce with the same message to send it.
             )
 
     async def list_channels(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """List all registered channels"""
         if not self.is_admin(update.effective_user.id):
             await update.message.reply_text("❌ You don't have permission to list channels.")
             return
@@ -212,7 +246,6 @@ Use /announce with the same message to send it.
         await update.message.reply_text(channels_text)
 
     async def list_admins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """List all admin users"""
         if not self.is_admin(update.effective_user.id):
             await update.message.reply_text("❌ You don't have permission to list admins.")
             return
@@ -223,7 +256,6 @@ Use /announce with the same message to send it.
         await update.message.reply_text(admins_text)
 
     async def add_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Add a new admin user"""
         if not self.is_admin(update.effective_user.id):
             await update.message.reply_text("❌ You don't have permission to add admins.")
             return
@@ -241,7 +273,6 @@ Use /announce with the same message to send it.
             await update.message.reply_text("❌ Invalid user ID. Please provide a valid number.")
 
     async def remove_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Remove an admin user"""
         if not self.is_admin(update.effective_user.id):
             await update.message.reply_text("❌ You don't have permission to remove admins.")
             return
@@ -253,7 +284,6 @@ Use /announce with the same message to send it.
         try:
             admin_id = int(context.args[0])
             if admin_id in self.admin_ids:
-                # Prevent removing the last admin
                 if len(self.admin_ids) <= 1:
                     await update.message.reply_text("❌ Cannot remove the last admin.")
                     return
@@ -269,10 +299,10 @@ def main():
     bot = AnnouncementBot()
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Add handlers
     application.add_handler(CommandHandler("start", bot.start))
     application.add_handler(CommandHandler("help", bot.help_command))
     application.add_handler(CommandHandler("announce", bot.announce))
+    application.add_handler(CommandHandler("edit", bot.edit_announce))
     application.add_handler(CommandHandler("listchannels", bot.list_channels))
     application.add_handler(CommandHandler("listadmins", bot.list_admins))
     application.add_handler(CommandHandler("addadmin", bot.add_admin))
@@ -280,7 +310,6 @@ def main():
     application.add_handler(CommandHandler("preview", bot.preview))
     application.add_handler(MessageHandler(filters.ChatType.CHANNEL | filters.ChatType.GROUP | filters.ChatType.SUPERGROUP, bot.register_channel))
 
-    # Start the bot
     application.run_polling()
 
 if __name__ == '__main__':
