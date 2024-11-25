@@ -75,7 +75,7 @@ class AnnouncementBot:
         if is_admin:
             help_text += """
 <b>Admin Commands:</b>
-• /announce - Send message to all channels
+• /announce - Send message to all channels (requires confirmation)
 • /edit - Edit last sent message
 • /preview - Preview how message will look
 • /listchannels - Show all registered channels
