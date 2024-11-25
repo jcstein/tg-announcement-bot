@@ -41,6 +41,7 @@ Basic Commands:
 
 Admin Commands:
 - `/announce` - Send announcement to all channels
+- `/edit` - Edit last sent message
 - `/preview` - Preview formatted message
 - `/listchannels` - Show registered channels
 - `/listadmins` - Show admin users
