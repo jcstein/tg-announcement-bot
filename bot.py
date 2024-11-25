@@ -24,7 +24,7 @@ class AnnouncementBot:
         self.channels = set()
         self.admin_ids = set()
         self.last_messages = {}
-        self.pending_announcements = {}  # Store pending announcements by user_id
+        self.pending_announcements = {}
         self.load_channels()
         self.load_admins()
 
@@ -48,6 +48,25 @@ class AnnouncementBot:
     def save_admins(self):
         with open(ADMINS_FILE, 'w') as f:
             json.dump(list(self.admin_ids), f)
+
+    async def remove_channel(self, channel_id: int):
+        if channel_id in self.channels:
+            self.channels.remove(channel_id)
+            self.save_channels()
+            logger.info(f"Removed channel: {channel_id}")
+            if channel_id in self.last_messages:
+                del self.last_messages[channel_id]
+
+    async def verify_channel_access(self, channel_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        try:
+            bot_member = await context.bot.get_chat_member(
+                chat_id=channel_id,
+                user_id=context.bot.id
+            )
+            return bot_member.status not in ['left', 'kicked']
+        except Exception:
+            await self.remove_channel(channel_id)
+            return False
 
     def is_admin(self, user_id: int) -> bool:
         return user_id in self.admin_ids
@@ -130,10 +149,8 @@ Read more at https://docs.example.com
             await update.message.reply_text("Please provide a message to announce.")
             return
 
-        # Store the pending announcement
         self.pending_announcements[user_id] = message
 
-        # Create confirmation keyboard
         keyboard = [
             [
                 InlineKeyboardButton("✅ Confirm", callback_data="confirm_announce"),
@@ -175,8 +192,14 @@ This message will be sent to {len(self.channels)} channels.
             success_count = 0
             fail_count = 0
             self.last_messages.clear()
+            channels_to_remove = set()
 
-            for channel_id in self.channels:
+            for channel_id in self.channels.copy():
+                if not await self.verify_channel_access(channel_id, context):
+                    channels_to_remove.add(channel_id)
+                    fail_count += 1
+                    continue
+
                 try:
                     message_obj = await context.bot.send_message(
                         chat_id=channel_id,
@@ -188,12 +211,17 @@ This message will be sent to {len(self.channels)} channels.
                     success_count += 1
                 except Exception as e:
                     logger.error(f"Failed to send message to channel {channel_id}: {e}")
+                    channels_to_remove.add(channel_id)
                     fail_count += 1
+
+            for channel_id in channels_to_remove:
+                await self.remove_channel(channel_id)
 
             del self.pending_announcements[user_id]
             await query.edit_message_text(
                 f"✅ Announcement sent to {success_count} channels.\n"
-                f"❌ Failed to send to {fail_count} channels."
+                f"❌ Failed to send to {fail_count} channels.\n"
+                f"📝 Removed {len(channels_to_remove)} inaccessible channels."
             )
 
         elif query.data == "cancel_announce":
@@ -220,8 +248,14 @@ This message will be sent to {len(self.channels)} channels.
 
         success_count = 0
         fail_count = 0
+        channels_to_remove = set()
 
-        for channel_id in self.channels:
+        for channel_id in self.channels.copy():
+            if not await self.verify_channel_access(channel_id, context):
+                channels_to_remove.add(channel_id)
+                fail_count += 1
+                continue
+
             if channel_id in self.last_messages:
                 try:
                     await context.bot.edit_message_text(
@@ -234,11 +268,16 @@ This message will be sent to {len(self.channels)} channels.
                     success_count += 1
                 except Exception as e:
                     logger.error(f"Failed to edit message in channel {channel_id}: {e}")
+                    channels_to_remove.add(channel_id)
                     fail_count += 1
 
+        for channel_id in channels_to_remove:
+            await self.remove_channel(channel_id)
+
         await update.message.reply_text(
-            f"Announcement edited in {success_count} channels.\n"
-            f"Failed to edit in {fail_count} channels."
+            f"✅ Announcement edited in {success_count} channels.\n"
+            f"❌ Failed to edit in {fail_count} channels.\n"
+            f"📝 Removed {len(channels_to_remove)} inaccessible channels."
         )
 
     async def preview(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
