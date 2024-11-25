@@ -32,7 +32,7 @@ Basic Commands:
 - `/help` - Show available commands
 
 Admin Commands:
-- `/announce` - Send announcement to all channels
+- `/announce` - Send announcement to all channels (requires confirmation)
 - `/edit` - Edit last sent message (within 48 hours)
 - `/preview` - Preview formatted message
 - `/listchannels` - Show registered channels
