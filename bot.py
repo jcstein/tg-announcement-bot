@@ -1,6 +1,6 @@
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import json
 import os
 from dotenv import load_dotenv
@@ -24,6 +24,7 @@ class AnnouncementBot:
         self.channels = set()
         self.admin_ids = set()
         self.last_messages = {}
+        self.pending_announcements = {}  # Store pending announcements by user_id
         self.load_channels()
         self.load_admins()
 
@@ -129,28 +130,76 @@ Read more at https://docs.example.com
             await update.message.reply_text("Please provide a message to announce.")
             return
 
-        success_count = 0
-        fail_count = 0
-        self.last_messages.clear()
+        # Store the pending announcement
+        self.pending_announcements[user_id] = message
 
-        for channel_id in self.channels:
-            try:
-                message_obj = await context.bot.send_message(
-                    chat_id=channel_id,
-                    text=message,
-                    parse_mode='HTML',
-                    disable_web_page_preview=False
-                )
-                self.last_messages[channel_id] = message_obj.message_id
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Failed to send message to channel {channel_id}: {e}")
-                fail_count += 1
+        # Create confirmation keyboard
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Confirm", callback_data="confirm_announce"),
+                InlineKeyboardButton("❌ Cancel", callback_data="cancel_announce")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
+        preview_text = f"""
+📢 <b>Confirm Announcement</b>
+
+{message}
+
+This message will be sent to {len(self.channels)} channels.
+"""
         await update.message.reply_text(
-            f"Announcement sent to {success_count} channels.\n"
-            f"Failed to send to {fail_count} channels."
+            preview_text,
+            reply_markup=reply_markup,
+            parse_mode='HTML',
+            disable_web_page_preview=False
         )
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        if not self.is_admin(user_id):
+            await query.answer("You don't have permission to do this.")
+            return
+
+        await query.answer()
+
+        if query.data == "confirm_announce":
+            if user_id not in self.pending_announcements:
+                await query.edit_message_text("No pending announcement found.")
+                return
+
+            message = self.pending_announcements[user_id]
+            success_count = 0
+            fail_count = 0
+            self.last_messages.clear()
+
+            for channel_id in self.channels:
+                try:
+                    message_obj = await context.bot.send_message(
+                        chat_id=channel_id,
+                        text=message,
+                        parse_mode='HTML',
+                        disable_web_page_preview=False
+                    )
+                    self.last_messages[channel_id] = message_obj.message_id
+                    success_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to send message to channel {channel_id}: {e}")
+                    fail_count += 1
+
+            del self.pending_announcements[user_id]
+            await query.edit_message_text(
+                f"✅ Announcement sent to {success_count} channels.\n"
+                f"❌ Failed to send to {fail_count} channels."
+            )
+
+        elif query.data == "cancel_announce":
+            if user_id in self.pending_announcements:
+                del self.pending_announcements[user_id]
+            await query.edit_message_text("❌ Announcement cancelled.")
 
     async def edit_announce(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
@@ -309,6 +358,7 @@ def main():
     application.add_handler(CommandHandler("removeadmin", bot.remove_admin))
     application.add_handler(CommandHandler("preview", bot.preview))
     application.add_handler(MessageHandler(filters.ChatType.CHANNEL | filters.ChatType.GROUP | filters.ChatType.SUPERGROUP, bot.register_channel))
+    application.add_handler(CallbackQueryHandler(bot.handle_callback))
 
     application.run_polling()
 
