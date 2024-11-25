@@ -95,7 +95,7 @@ class AnnouncementBot:
             help_text += """
 <b>Admin Commands:</b>
 • /announce - Send message to all channels (requires confirmation)
-• /edit - Edit last sent message
+• /edit - Edit last sent message (within 48 hours & requires confirmation)
 • /preview - Preview how message will look
 • /listchannels - Show all registered channels
 • /listadmins - Show all admin users
@@ -246,39 +246,126 @@ This message will be sent to {len(self.channels)} channels.
             await update.message.reply_text("Please provide a message to edit.")
             return
 
-        success_count = 0
-        fail_count = 0
-        channels_to_remove = set()
+        self.pending_announcements[user_id] = message
 
-        for channel_id in self.channels.copy():
-            if not await self.verify_channel_access(channel_id, context):
-                channels_to_remove.add(channel_id)
-                fail_count += 1
-                continue
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Confirm Edit", callback_data="confirm_edit"),
+                InlineKeyboardButton("❌ Cancel", callback_data="cancel_edit")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-            if channel_id in self.last_messages:
+        preview_text = f"""
+📢 <b>Confirm Edit</b>
+
+{message}
+
+This message will edit the last announcement in {len(self.channels)} channels.
+"""
+        await update.message.reply_text(
+            preview_text,
+            reply_markup=reply_markup,
+            parse_mode='HTML',
+            disable_web_page_preview=False
+        )
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        if not self.is_admin(user_id):
+            await query.answer("You don't have permission to do this.")
+            return
+
+        await query.answer()
+
+        if query.data == "confirm_announce":
+            if user_id not in self.pending_announcements:
+                await query.edit_message_text("No pending announcement found.")
+                return
+
+            message = self.pending_announcements[user_id]
+            success_count = 0
+            fail_count = 0
+            self.last_messages.clear()
+            channels_to_remove = set()
+
+            for channel_id in self.channels.copy():
+                if not await self.verify_channel_access(channel_id, context):
+                    channels_to_remove.add(channel_id)
+                    fail_count += 1
+                    continue
+
                 try:
-                    await context.bot.edit_message_text(
+                    message_obj = await context.bot.send_message(
                         chat_id=channel_id,
-                        message_id=self.last_messages[channel_id],
                         text=message,
                         parse_mode='HTML',
                         disable_web_page_preview=False
                     )
+                    self.last_messages[channel_id] = message_obj.message_id
                     success_count += 1
                 except Exception as e:
-                    logger.error(f"Failed to edit message in channel {channel_id}: {e}")
+                    logger.error(f"Failed to send message to channel {channel_id}: {e}")
                     channels_to_remove.add(channel_id)
                     fail_count += 1
 
-        for channel_id in channels_to_remove:
-            await self.remove_channel(channel_id)
+            for channel_id in channels_to_remove:
+                await self.remove_channel(channel_id)
 
-        await update.message.reply_text(
-            f"✅ Announcement edited in {success_count} channels.\n"
-            f"❌ Failed to edit in {fail_count} channels.\n"
-            f"📝 Removed {len(channels_to_remove)} inaccessible channels."
-        )
+            del self.pending_announcements[user_id]
+            await query.edit_message_text(
+                f"✅ Announcement sent to {success_count} channels.\n"
+                f"❌ Failed to send to {fail_count} channels.\n"
+                f"📝 Removed {len(channels_to_remove)} inaccessible channels."
+            )
+
+        elif query.data == "confirm_edit":
+            if user_id not in self.pending_announcements:
+                await query.edit_message_text("No pending edit found.")
+                return
+
+            message = self.pending_announcements[user_id]
+            success_count = 0
+            fail_count = 0
+            channels_to_remove = set()
+
+            for channel_id in self.channels.copy():
+                if not await self.verify_channel_access(channel_id, context):
+                    channels_to_remove.add(channel_id)
+                    fail_count += 1
+                    continue
+
+                if channel_id in self.last_messages:
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=channel_id,
+                            message_id=self.last_messages[channel_id],
+                            text=message,
+                            parse_mode='HTML',
+                            disable_web_page_preview=False
+                        )
+                        success_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to edit message in channel {channel_id}: {e}")
+                        channels_to_remove.add(channel_id)
+                        fail_count += 1
+
+            for channel_id in channels_to_remove:
+                await self.remove_channel(channel_id)
+
+            del self.pending_announcements[user_id]
+            await query.edit_message_text(
+                f"✅ Announcement edited in {success_count} channels.\n"
+                f"❌ Failed to edit in {fail_count} channels.\n"
+                f"📝 Removed {len(channels_to_remove)} inaccessible channels."
+            )
+
+        elif query.data in ["cancel_announce", "cancel_edit"]:
+            if user_id in self.pending_announcements:
+                del self.pending_announcements[user_id]
+            await query.edit_message_text("❌ Operation cancelled.")
 
     async def preview(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id

@@ -33,7 +33,7 @@ Basic Commands:
 
 Admin Commands:
 - `/announce` - Send announcement to all channels (requires confirmation)
-- `/edit` - Edit last sent message (within 48 hours)
+- `/edit` - Edit last sent message (within 48 hours & requires confirmation)
 - `/preview` - Preview formatted message
 - `/listchannels` - Show registered channels
 - `/listadmins` - Show admin users
@@ -58,8 +58,10 @@ And <i>italic</i>
 1. Add the bot to your channels
 2. The bot will automatically register the channels
 3. Use `/announce` to compose your message
-4. Review the preview and click:
-   - ✅ Confirm to send to all channels
-   - ❌ Cancel to abort
-5. Use `/edit` to modify the last sent message (within 48 hours)
+4. Review the preview and:
+   - ✅ Click Confirm to send to all channels
+   - ❌ Click Cancel to abort
+5. Use `/edit` to modify the last sent message
+   - Review the changes and confirm or cancel
+   - Only works within 48 hours of sending
 6. Use `/preview` to test message formatting
